@@ -155,3 +155,9 @@ This action generates a solid starting point. For production-grade CLAUDE.md fil
 ## License
 
 MIT
+
+## Also Check Out
+
+- [Claude Code Plugins](https://github.com/goblinmode2700/claude-code-plugins) — installable skills for Claude Code (CLAUDE.md Architect, Sprint Manager)
+- [Free CLAUDE.md Generator](https://necessitaslabs.vercel.app) — browser-based generator, no install needed
+- [Resume Job Fit Scorer](https://necessitaslabs.vercel.app/resume-scorer) — free ATS compatibility checker
