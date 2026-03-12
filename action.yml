@@ -1,0 +1,367 @@
+name: 'CLAUDE.md Generator'
+description: 'Automatically generate a CLAUDE.md governance file for your repository based on its structure, language, and framework.'
+author: 'NecessitasLabs'
+
+branding:
+  icon: 'file-text'
+  color: 'orange'
+
+inputs:
+  style:
+    description: 'Governance style: minimal, standard, or comprehensive'
+    required: false
+    default: 'standard'
+  output-path:
+    description: 'Path to write the CLAUDE.md file'
+    required: false
+    default: 'CLAUDE.md'
+  dry-run:
+    description: 'If true, outputs the generated CLAUDE.md to stdout without writing to disk'
+    required: false
+    default: 'false'
+
+outputs:
+  claude-md:
+    description: 'The generated CLAUDE.md content'
+  detected-stack:
+    description: 'Detected technology stack (JSON)'
+  file-path:
+    description: 'Path where CLAUDE.md was written'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Detect stack and generate CLAUDE.md
+      id: generate
+      shell: bash
+      run: |
+        # CLAUDE.md Generator by NecessitasLabs
+        # https://necessitaslabs.vercel.app
+
+        set -euo pipefail
+
+        STYLE="${{ inputs.style }}"
+        OUTPUT_PATH="${{ inputs.output-path }}"
+        DRY_RUN="${{ inputs.dry-run }}"
+
+        # --- Stack Detection ---
+        declare -A DETECTED
+        LANGUAGES=()
+        FRAMEWORKS=()
+        TOOLS=()
+        PKG_MANAGER=""
+        TEST_FRAMEWORK=""
+        LINT_TOOLS=()
+        HAS_DOCKER=false
+        HAS_CI=false
+        MONOREPO=false
+        PROJECT_NAME=$(basename "$GITHUB_REPOSITORY")
+
+        # Language detection
+        if [ -f "package.json" ]; then
+          LANGUAGES+=("TypeScript/JavaScript")
+          if [ -f "yarn.lock" ]; then PKG_MANAGER="yarn"
+          elif [ -f "pnpm-lock.yaml" ]; then PKG_MANAGER="pnpm"
+          elif [ -f "bun.lockb" ]; then PKG_MANAGER="bun"
+          else PKG_MANAGER="npm"; fi
+
+          # Framework detection from package.json
+          if grep -q '"next"' package.json 2>/dev/null; then FRAMEWORKS+=("Next.js"); fi
+          if grep -q '"react"' package.json 2>/dev/null; then FRAMEWORKS+=("React"); fi
+          if grep -q '"vue"' package.json 2>/dev/null; then FRAMEWORKS+=("Vue"); fi
+          if grep -q '"svelte"' package.json 2>/dev/null; then FRAMEWORKS+=("Svelte"); fi
+          if grep -q '"express"' package.json 2>/dev/null; then FRAMEWORKS+=("Express"); fi
+          if grep -q '"fastify"' package.json 2>/dev/null; then FRAMEWORKS+=("Fastify"); fi
+          if grep -q '"@angular' package.json 2>/dev/null; then FRAMEWORKS+=("Angular"); fi
+          if grep -q '"astro"' package.json 2>/dev/null; then FRAMEWORKS+=("Astro"); fi
+          if grep -q '"nuxt"' package.json 2>/dev/null; then FRAMEWORKS+=("Nuxt"); fi
+          if grep -q '"remix"' package.json 2>/dev/null; then FRAMEWORKS+=("Remix"); fi
+          if grep -q '"hono"' package.json 2>/dev/null; then FRAMEWORKS+=("Hono"); fi
+          if grep -q '"tailwindcss"' package.json 2>/dev/null; then TOOLS+=("Tailwind CSS"); fi
+          if grep -q '"prisma"' package.json 2>/dev/null; then TOOLS+=("Prisma"); fi
+          if grep -q '"drizzle-orm"' package.json 2>/dev/null; then TOOLS+=("Drizzle ORM"); fi
+
+          # Test framework
+          if grep -q '"vitest"' package.json 2>/dev/null; then TEST_FRAMEWORK="vitest"
+          elif grep -q '"jest"' package.json 2>/dev/null; then TEST_FRAMEWORK="jest"
+          elif grep -q '"mocha"' package.json 2>/dev/null; then TEST_FRAMEWORK="mocha"
+          elif grep -q '"playwright"' package.json 2>/dev/null; then TEST_FRAMEWORK="playwright"; fi
+
+          # Lint tools
+          if grep -q '"eslint"' package.json 2>/dev/null; then LINT_TOOLS+=("ESLint"); fi
+          if grep -q '"prettier"' package.json 2>/dev/null; then LINT_TOOLS+=("Prettier"); fi
+          if grep -q '"biome"' package.json 2>/dev/null; then LINT_TOOLS+=("Biome"); fi
+        fi
+
+        if [ -f "requirements.txt" ] || [ -f "pyproject.toml" ] || [ -f "setup.py" ] || [ -f "Pipfile" ]; then
+          LANGUAGES+=("Python")
+          if [ -f "pyproject.toml" ]; then
+            if grep -q 'fastapi' pyproject.toml 2>/dev/null; then FRAMEWORKS+=("FastAPI"); fi
+            if grep -q 'django' pyproject.toml 2>/dev/null; then FRAMEWORKS+=("Django"); fi
+            if grep -q 'flask' pyproject.toml 2>/dev/null; then FRAMEWORKS+=("Flask"); fi
+            if grep -q 'sqlalchemy' pyproject.toml 2>/dev/null; then TOOLS+=("SQLAlchemy"); fi
+            if grep -q 'pytest' pyproject.toml 2>/dev/null; then TEST_FRAMEWORK="pytest"; fi
+            if grep -q 'ruff' pyproject.toml 2>/dev/null; then LINT_TOOLS+=("Ruff"); fi
+            if grep -q 'black' pyproject.toml 2>/dev/null; then LINT_TOOLS+=("Black"); fi
+            if grep -q 'mypy' pyproject.toml 2>/dev/null; then LINT_TOOLS+=("mypy"); fi
+            if grep -q 'poetry' pyproject.toml 2>/dev/null; then PKG_MANAGER="poetry"
+            elif grep -q 'pdm' pyproject.toml 2>/dev/null; then PKG_MANAGER="pdm"
+            else PKG_MANAGER="pip"; fi
+          fi
+          if [ -f "requirements.txt" ]; then
+            if grep -q 'fastapi' requirements.txt 2>/dev/null; then FRAMEWORKS+=("FastAPI"); fi
+            if grep -q 'django' requirements.txt 2>/dev/null; then FRAMEWORKS+=("Django"); fi
+            if grep -q 'flask' requirements.txt 2>/dev/null; then FRAMEWORKS+=("Flask"); fi
+            if grep -q 'pytest' requirements.txt 2>/dev/null; then TEST_FRAMEWORK="pytest"; fi
+            PKG_MANAGER="${PKG_MANAGER:-pip}"
+          fi
+        fi
+
+        if [ -f "go.mod" ]; then
+          LANGUAGES+=("Go")
+          PKG_MANAGER="${PKG_MANAGER:-go modules}"
+          if grep -q 'gin-gonic' go.mod 2>/dev/null; then FRAMEWORKS+=("Gin"); fi
+          if grep -q 'echo' go.mod 2>/dev/null; then FRAMEWORKS+=("Echo"); fi
+          if grep -q 'fiber' go.mod 2>/dev/null; then FRAMEWORKS+=("Fiber"); fi
+        fi
+
+        if [ -f "Cargo.toml" ]; then
+          LANGUAGES+=("Rust")
+          PKG_MANAGER="${PKG_MANAGER:-cargo}"
+          if grep -q 'actix-web' Cargo.toml 2>/dev/null; then FRAMEWORKS+=("Actix Web"); fi
+          if grep -q 'axum' Cargo.toml 2>/dev/null; then FRAMEWORKS+=("Axum"); fi
+          if grep -q 'tokio' Cargo.toml 2>/dev/null; then TOOLS+=("Tokio"); fi
+        fi
+
+        if [ -f "Gemfile" ]; then
+          LANGUAGES+=("Ruby")
+          PKG_MANAGER="${PKG_MANAGER:-bundler}"
+          if grep -q 'rails' Gemfile 2>/dev/null; then FRAMEWORKS+=("Rails"); fi
+        fi
+
+        # Infrastructure
+        if [ -f "Dockerfile" ] || [ -f "docker-compose.yml" ] || [ -f "docker-compose.yaml" ]; then
+          HAS_DOCKER=true
+          TOOLS+=("Docker")
+        fi
+        if [ -d ".github/workflows" ]; then HAS_CI=true; TOOLS+=("GitHub Actions"); fi
+        if [ -f "terraform.tf" ] || [ -d "terraform" ]; then TOOLS+=("Terraform"); fi
+        if [ -f "vercel.json" ]; then TOOLS+=("Vercel"); fi
+        if [ -f "netlify.toml" ]; then TOOLS+=("Netlify"); fi
+        if [ -f "fly.toml" ]; then TOOLS+=("Fly.io"); fi
+
+        # Monorepo detection
+        if [ -f "turbo.json" ] || [ -f "nx.json" ] || [ -f "lerna.json" ] || [ -d "packages" ] || [ -d "apps" ]; then
+          MONOREPO=true
+          TOOLS+=("Monorepo")
+        fi
+
+        # --- Generate CLAUDE.md ---
+        LANG_STR=$(IFS=', '; echo "${LANGUAGES[*]:-Unknown}")
+        FW_STR=$(IFS=', '; echo "${FRAMEWORKS[*]:-None detected}")
+        TOOL_STR=$(IFS=', '; echo "${TOOLS[*]:-None detected}")
+        LINT_STR=$(IFS=', '; echo "${LINT_TOOLS[*]:-None configured}")
+
+        generate_claude_md() {
+          cat << 'HEADER'
+        # CLAUDE.md
+        HEADER
+
+          echo ""
+          echo "## Project: ${PROJECT_NAME}"
+          echo ""
+
+          # Stack overview
+          echo "## Tech Stack"
+          echo "- **Languages:** ${LANG_STR}"
+          echo "- **Frameworks:** ${FW_STR}"
+          echo "- **Tools:** ${TOOL_STR}"
+          if [ -n "$PKG_MANAGER" ]; then echo "- **Package Manager:** ${PKG_MANAGER}"; fi
+          echo ""
+
+          # Build & run commands
+          echo "## Commands"
+          echo ""
+          if [ -n "$PKG_MANAGER" ] && [[ " npm yarn pnpm bun " =~ " $PKG_MANAGER " ]]; then
+            echo "### Install"
+            echo "\`\`\`bash"
+            echo "${PKG_MANAGER} install"
+            echo "\`\`\`"
+            echo ""
+            echo "### Dev Server"
+            echo "\`\`\`bash"
+            echo "${PKG_MANAGER} run dev"
+            echo "\`\`\`"
+            echo ""
+            echo "### Build"
+            echo "\`\`\`bash"
+            echo "${PKG_MANAGER} run build"
+            echo "\`\`\`"
+          elif [ "$PKG_MANAGER" = "poetry" ]; then
+            echo "### Install"
+            echo "\`\`\`bash"
+            echo "poetry install"
+            echo "\`\`\`"
+          elif [ "$PKG_MANAGER" = "pip" ]; then
+            echo "### Install"
+            echo "\`\`\`bash"
+            echo "pip install -r requirements.txt"
+            echo "\`\`\`"
+          elif [ "$PKG_MANAGER" = "cargo" ]; then
+            echo "### Build"
+            echo "\`\`\`bash"
+            echo "cargo build"
+            echo "\`\`\`"
+            echo ""
+            echo "### Run"
+            echo "\`\`\`bash"
+            echo "cargo run"
+            echo "\`\`\`"
+          elif [ "$PKG_MANAGER" = "go modules" ]; then
+            echo "### Build"
+            echo "\`\`\`bash"
+            echo "go build ./..."
+            echo "\`\`\`"
+            echo ""
+            echo "### Run"
+            echo "\`\`\`bash"
+            echo "go run ."
+            echo "\`\`\`"
+          elif [ "$PKG_MANAGER" = "bundler" ]; then
+            echo "### Install"
+            echo "\`\`\`bash"
+            echo "bundle install"
+            echo "\`\`\`"
+          fi
+          echo ""
+
+          # Testing
+          if [ -n "$TEST_FRAMEWORK" ]; then
+            echo "### Test"
+            echo "\`\`\`bash"
+            case "$TEST_FRAMEWORK" in
+              vitest) echo "${PKG_MANAGER:-npx} run test" ;;
+              jest) echo "${PKG_MANAGER:-npx} run test" ;;
+              pytest) echo "pytest" ;;
+              mocha) echo "${PKG_MANAGER:-npx} run test" ;;
+              playwright) echo "${PKG_MANAGER:-npx} run test:e2e" ;;
+              *) echo "# Run tests" ;;
+            esac
+            echo "\`\`\`"
+            echo ""
+          fi
+
+          # Linting
+          if [ ${#LINT_TOOLS[@]} -gt 0 ]; then
+            echo "### Lint"
+            echo "\`\`\`bash"
+            if [[ " ${LINT_TOOLS[*]} " =~ " ESLint " ]]; then
+              echo "${PKG_MANAGER:-npx} run lint"
+            elif [[ " ${LINT_TOOLS[*]} " =~ " Biome " ]]; then
+              echo "${PKG_MANAGER:-npx} run lint"
+            elif [[ " ${LINT_TOOLS[*]} " =~ " Ruff " ]]; then
+              echo "ruff check ."
+            fi
+            echo "\`\`\`"
+            echo ""
+          fi
+
+          # Code style section
+          echo "## Code Style"
+          if [[ " ${LINT_TOOLS[*]} " =~ " Prettier " ]]; then
+            echo "- Format with Prettier before committing"
+          fi
+          if [[ " ${LINT_TOOLS[*]} " =~ " ESLint " ]]; then
+            echo "- Follow ESLint rules defined in project config"
+          fi
+          if [[ " ${LINT_TOOLS[*]} " =~ " Ruff " ]]; then
+            echo "- Follow Ruff linting rules"
+          fi
+          if [[ " ${LINT_TOOLS[*]} " =~ " Black " ]]; then
+            echo "- Format Python code with Black"
+          fi
+          if [[ " ${LINT_TOOLS[*]} " =~ " mypy " ]]; then
+            echo "- Ensure type safety with mypy"
+          fi
+          echo "- Write clear, descriptive commit messages"
+          echo "- Keep functions focused and small"
+          echo "- Add tests for new functionality"
+          echo ""
+
+          # Architecture notes for standard/comprehensive
+          if [ "$STYLE" != "minimal" ]; then
+            echo "## Architecture"
+            echo ""
+
+            # Directory structure
+            echo "### Key Directories"
+            echo "\`\`\`"
+            # Show top-level directory structure (max 2 levels, dirs only)
+            find . -maxdepth 2 -type d -not -path '*/\.*' -not -path '*/node_modules/*' -not -path '*/__pycache__/*' -not -path '*/dist/*' -not -path '*/.next/*' -not -path '*/target/*' -not -path '*/vendor/*' -not -path '*/venv/*' -not -path '*/.venv/*' | sort | head -30 | sed 's|^\./||'
+            echo "\`\`\`"
+            echo ""
+
+            if $MONOREPO; then
+              echo "> **Monorepo:** This project uses a monorepo structure. Check individual package directories for package-specific configuration."
+              echo ""
+            fi
+          fi
+
+          # Comprehensive extras
+          if [ "$STYLE" = "comprehensive" ]; then
+            echo "## Conventions"
+            echo ""
+            echo "### Git"
+            echo "- Use conventional commits (feat:, fix:, docs:, chore:, refactor:, test:)"
+            echo "- Create feature branches from main"
+            echo "- Keep PRs focused and reviewable"
+            echo ""
+
+            if $HAS_DOCKER; then
+              echo "### Docker"
+              echo "- Use \`docker compose up\` for local development"
+              echo "- Keep Dockerfiles minimal and multi-stage where appropriate"
+              echo ""
+            fi
+
+            echo "### Error Handling"
+            echo "- Handle errors at appropriate boundaries"
+            echo "- Log errors with sufficient context for debugging"
+            echo "- Never swallow exceptions silently"
+            echo ""
+          fi
+
+          echo "---"
+          echo "*Generated by [CLAUDE.md Generator](https://necessitaslabs.vercel.app) — free AI tools for Claude Code*"
+        }
+
+        # Generate the content
+        CONTENT=$(generate_claude_md)
+
+        # Output detected stack as JSON
+        STACK_JSON=$(cat << EJSON
+        {"languages":"${LANG_STR}","frameworks":"${FW_STR}","tools":"${TOOL_STR}","package_manager":"${PKG_MANAGER}","test_framework":"${TEST_FRAMEWORK}","has_docker":${HAS_DOCKER},"monorepo":${MONOREPO}}
+        EJSON
+        )
+
+        echo "detected-stack=${STACK_JSON}" >> $GITHUB_OUTPUT
+        echo "file-path=${OUTPUT_PATH}" >> $GITHUB_OUTPUT
+
+        # Use heredoc to handle multiline output
+        {
+          echo "claude-md<<ENDOFCONTENT"
+          echo "$CONTENT"
+          echo "ENDOFCONTENT"
+        } >> $GITHUB_OUTPUT
+
+        if [ "$DRY_RUN" = "true" ]; then
+          echo "--- CLAUDE.md Preview (dry run) ---"
+          echo "$CONTENT"
+          echo "--- End Preview ---"
+        else
+          echo "$CONTENT" > "$OUTPUT_PATH"
+          echo "✅ Generated ${OUTPUT_PATH} ($(echo "$CONTENT" | wc -l | tr -d ' ') lines)"
+          echo ""
+          echo "Stack detected: ${LANG_STR} | ${FW_STR}"
+          echo "Style: ${STYLE}"
+        fi
